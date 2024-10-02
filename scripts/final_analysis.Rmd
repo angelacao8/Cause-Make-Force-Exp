@@ -1,0 +1,211 @@
+---
+title: "Cause/Make/Force Exp. Final Analysis"
+author: "Angela Cao"
+date: "2024-09-02"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(brms)      # for regression
+library(ggplot2) # for plotting
+```
+
+```{r setup, include=FALSE}
+# z-scoring function
+zscore <- function(x) {
+  (x - mean(x)) / sd(x)
+}
+
+# load the data
+data <- read.csv("formatted_082023_4.csv")
+
+# remove fillers
+data <- subset(data, verb != "")
+```
+
+```{r}
+##
+## Regressions
+##
+
+# z-score the measures
+data$zPOS <- zscore(data$POS)
+data$zDOI <- zscore(data$DOI)
+data$zES <- zscore(data$ES)
+
+# residualize POS by ES to decorrelate the two
+data$POSresidES <- data$POS - predict(lm(POS ~ log(ES), data=data))
+data$zPOSresidES <- zscore(data$POSresidES)
+```
+
+
+```{r}
+# test the hypothesis that all three measures are relevant
+# if the three measures have a reliable interaction, we can conclude at least
+# that there is a single semantic parameter that is sensitive to all three
+# measures
+m.full <- brm(
+  rating ~ verb * zPOSresidES * zDOI * zES + (1 + verb | prolificid),
+  data = data,
+  family = "bernoulli"
+)
+summary(m.full)
+```
+
+```{r setup, include=FALSE}
+m.full.drop3 <- brm(
+  rating ~ verb * (zPOSresidES + zDOI + zES)^2 + (1 + verb | prolificid),
+  data = data,
+  family = "bernoulli"
+)
+```
+
+```{r}
+summary(m.full.drop3)
+```
+
+```{r setup, include=FALSE}
+m.add <- brm(
+  rating ~ verb + zPOSresidES * zDOI * zES + (1 + verb | prolificid),
+  data = data,
+  family = "bernoulli"
+)
+
+summary(m.add)
+```
+
+```{r setup, include=False}
+# Subset the data for each verb
+data_verb1 <- subset(data, verb == "caused")
+data_verb2 <- subset(data, verb == "made")
+data_verb3 <- subset(data, verb == "forced")
+```
+
+```{r setup, include=False}
+# Fit separate models for each verb
+m.verb1 <- brm(
+  rating ~ zPOSresidES * zDOI * zES + (1 | prolificid),
+  data = data_verb1,
+  family = "bernoulli"
+)
+
+m.verb2 <- brm(
+  rating ~ zPOSresidES * zDOI * zES + (1 | prolificid),
+  data = data_verb2,
+  family = "bernoulli"
+)
+
+m.verb3 <- brm(
+  rating ~ zPOSresidES * zDOI * zES + (1 | prolificid),
+  data = data_verb3,
+  family = "bernoulli"
+)
+
+# Summarize each model
+summary(m.verb1)
+summary(m.verb2)
+summary(m.verb3)
+```
+
+```{r setup, include=FALSE}
+m.add.drop3 <- brm(
+  rating ~ verb + (zPOSresidES + zDOI + zES)^2 + (1 + verb | prolificid),
+  data = data,
+  family = "bernoulli"
+)
+
+summary(m.add.drop3)
+```
+
+
+```{r setup, include=FALSE}
+waic.full <- waic(m.full)
+waic.full.drop3 <- waic(m.full.drop3)
+waic.add <- waic(m.add)
+waic.add.drop3 <- waic(m.add.drop3)
+
+# the three-way interaction among continuous measures is needed
+loo_compare(waic.add, waic.add.drop3)
+
+# including interactions between the verb and lower order interactions
+# does not help this
+loo_compare(waic.full, waic.full.drop3)
+
+# we don't need any of the verb-measure interactions
+loo_compare(waic.add, waic.full)
+```
+
+```{r setup, include=FALSE}
+##
+## Plotting
+##
+
+# order verbs for plotting
+data$verb <- order(data$verb, levels=c("caused", "made", "forced"))
+
+# bin ES for plotting
+data$ESbin <- cut(
+  data$ES, breaks=2,
+  labels=c("Small # of alternatives", "Large # of alternatives")
+)
+
+
+ggplot(data, aes(x=DOI, y=ifelse(data$rating == "no", 0, 1), color=verb)) +
+  geom_jitter(height=0.05, width=0.05, size=0.1) +
+  geom_smooth(method="glm", formula=y ~ x, method.args=list(family="binomial")) +
+  theme_bw() +
+  ylab("Probability of rating") +
+  xlab("Degree of intention (INT)") +
+  facet_grid(~ESbin, scales = "free_x") +
+  scale_color_manual(name="Verb", values=c("#0B4675", "#AF4C2D", "#800080")) +
+  theme(axis.text=element_text(size=20),
+        axis.title=element_text(size=25, face="bold"),
+        strip.text=element_text(size=15, face="bold"),
+        legend.position="bottom",
+        legend.title=element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+ggsave("int_by_alt.png", height=6, width=10)
+
+ggplot(data, aes(x=POS, y=ifelse(data$rating == "no", 0, 1), color=verb)) +
+  geom_jitter(height=0.05, width=0.05, size=0.1) +
+  geom_smooth(method="glm", formula=y ~ x, method.args=list(family="binomial")) +
+  theme_bw() +
+  ylab("Probability of rating") +
+  xlab("Probability of sufficiency (SUF)") +
+  facet_grid(~ESbin, scales = "free_x") +
+  scale_color_manual(name="Verb", values=c("#0B4675", "#AF4C2D", "#800080")) +
+  theme(axis.text=element_text(size=20),
+        axis.title=element_text(size=25, face="bold"),
+        strip.text=element_text(size=15, face="bold"),
+        legend.position="bottom",
+        legend.title=element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+ggsave("suf_by_alt.png", height=6, width=10)
+```
+
+```{r}
+data$DOIbin <- cut(
+  data$DOI, breaks=2,
+  labels=c("Low degree of intention", "High degree of intention")
+)
+
+ggplot(data, aes(x=POS, y=ifelse(data$rating == "no", 0, 1), color=verb)) +
+  geom_jitter(height=0.05, width=0.05, size=0.1) +
+  geom_smooth(method="glm", formula=y ~ x, method.args=list(family="binomial")) +
+  theme_bw() +
+  ylab("Probability of rating") +
+  xlab("Probability of sufficiency (SUF)") +
+  facet_grid(~DOIbin, scales = "free_x") +
+  scale_color_manual(name="Verb", values=c("#0B4675", "#AF4C2D", "#800080")) +
+  theme(axis.text=element_text(size=20),
+        axis.title=element_text(size=25, face="bold"),
+        strip.text=element_text(size=15, face="bold"),
+        legend.position="bottom",
+        legend.title=element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+ggsave("suf_by_int.png", height=6, width=10)
+
+```

@@ -1,0 +1,48 @@
+---
+title: "Playground"
+output: github_document
+---
+  
+## Load libraries
+```{r load libraries}
+library(tidyverse)
+library(here)
+library(writexl)
+library(readr)
+library(brms)
+library(dplyr)
+
+
+theme_set(theme_bw())
+```
+
+
+## Load data
+```{r}
+# Set the seed for reproducibility
+set.seed(42)
+
+# Read the CSV file
+data <- read_csv("stimuli.csv")
+
+# Generate random decimal numbers between 0 and 1 (inclusive) for "POS" and "DOB" columns
+data$POS <- round(runif(nrow(data)), 2)
+data$DOB <- round(runif(nrow(data)), 2)
+data$Make <- sample(0:1, nrow(data), replace = TRUE)
+data$Force <- sample(0:1, nrow(data), replace = TRUE)
+
+colnames(data)[colnames(data) == "Outcome desirability for B"] <- "Outcome"
+
+# Write the updated data to a new CSV file
+# write_csv(data, "output.csv")
+head(data)
+
+```
+
+```{r}
+
+model <- brm(Make ~ Outcome + POS, 
+             data = data, 
+             family = bernoulli(),
+              backend = 'cmdstanr',)
+```
